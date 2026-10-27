@@ -10,38 +10,43 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-path = "Tabela4.csv"
-
-df = pd.read_csv(path, sep=";", skiprows=1, decimal=",", encoding="latin-1")
-df = df.dropna(axis=1, how="all")
+path = ".\\Tabela4.csv"
 
 @st.cache_data
-def carregar_e_limpar_afazeres(caminho_ou_arquivo):
-    if isinstance(caminho_ou_arquivo, str):
-        if caminho_ou_arquivo.lower().endswith(".csv"):
-            bruto = pd.read_csv(caminho_ou_arquivo, header=None)
+def carregar_e_limpar_afazeres(path):
+    if isinstance(path, str):
+        if path.lower().endswith(".csv"):
+            bruto = pd.read_csv(path, header=None)
         else:
-            bruto = pd.read_excel(caminho_ou_arquivo, engine="xlrd", header=None)
+            bruto = pd.read_excel(path, engine="xlrd", header=None)
     else:
-        nome = caminho_ou_arquivo.name.lower()
+        nome = path.name.lower()
         if nome.endswith(".csv"):
-            bruto = pd.read_csv(caminho_ou_arquivo, header=None)
+            bruto = pd.read_csv(path, header=None)
         elif nome.endswith(".xls"):
-            bruto = pd.read_excel(caminho_ou_arquivo, engine="xlrd", header=None)
+            bruto = pd.read_excel(path, engine="xlrd", header=None)
         else:
-            bruto = pd.read_excel(caminho_ou_arquivo, header=None)
+            bruto = pd.read_excel(path, header=None)
 
-    df = bruto.iloc[8:41].copy()
+    df = bruto.iloc[[2,6,11,12,15]:41].copy()
 
     df.columns = [
-        "uf_regiao",
-        "total",
-        "total_branca",
-        "total_preta_parda",
-        "homem_branca",
-        "homem_preta_parda",
-        "mulher_branca",
-        "mulher_preta_parda",
+        "Sigla",
+        "2000",
+        "2010",
+        "2012",
+        "2013",
+        "2014",
+        "2015",
+        "2016",
+        "2017",
+        "2018",
+        "2019",
+        "2020",
+        "2021",
+        "2022",
+        "2023",
+        "2024",
     ]
     df = df.reset_index(drop=True)
 
@@ -56,18 +61,18 @@ def carregar_e_limpar_afazeres(caminho_ou_arquivo):
 
 
 @st.cache_data
-def carregar_e_limpar_formacao(caminho_ou_arquivo):
-    if isinstance(caminho_ou_arquivo, str):
-        if caminho_ou_arquivo.lower().endswith(".csv"):
-            bruto = pd.read_csv(caminho_ou_arquivo, header=None)
+def carregar_e_limpar_formacao(path):
+    if isinstance(path, str):
+        if path.lower().endswith(".csv"):
+            bruto = pd.read_csv(path, header=None)
         else:
-            bruto = pd.read_excel(caminho_ou_arquivo, header=None)
+            bruto = pd.read_excel(path, header=None)
     else:
-        nome = caminho_ou_arquivo.name.lower()
+        nome = path.name.lower()
         if nome.endswith(".csv"):
-            bruto = pd.read_csv(caminho_ou_arquivo, header=None)
+            bruto = pd.read_csv(path, header=None)
         else:
-            bruto = pd.read_excel(caminho_ou_arquivo, header=None)
+            bruto = pd.read_excel(path, header=None)
 
     f_bruto = bruto.iloc[3:36].copy()
 
@@ -116,16 +121,16 @@ df_formacao = None
 try:
     if file_afazeres is not None:
         df_afazeres = carregar_e_limpar_afazeres(file_afazeres)
-    elif os.path.exists(caminho_afazeres_padrao):
-        df_afazeres = carregar_e_limpar_afazeres(caminho_afazeres_padrao)
+    elif os.path.exists(path):
+        df_afazeres = carregar_e_limpar_afazeres(path)
 except Exception as e:
     st.sidebar.error(f"Erro ao carregar Tabela 1.1.1: {e}")
 
 try:
     if file_formacao is not None:
         df_formacao = carregar_e_limpar_formacao(file_formacao)
-    elif os.path.exists(caminho_formacao_padrao):
-        df_formacao = carregar_e_limpar_formacao(caminho_formacao_padrao)
+    elif os.path.exists(path):
+        df_formacao = carregar_e_limpar_formacao(path)
 except Exception as e:
     st.sidebar.error(f"Erro ao carregar Tabela de Formação: {e}")
 
@@ -133,8 +138,8 @@ if df_afazeres is None or df_formacao is None:
     st.warning("⚠️ **Aguardando leitura de dados pelo Pandas.**")
     st.info(f"""
     Não foi possível encontrar automaticamente os arquivos nos caminhos:
-    - `{caminho_afazeres_padrao}`
-    - `{caminho_formacao_padrao}`
+    - `{path}`
+    - `{path}`
 
     **Solução:** Utilize o campo de upload na barra lateral para carregar as tabelas.
     """)
