@@ -1,320 +1,339 @@
-import streamlit as st
-import plotly.express as px
-import pandas as pd
 import os
 
+import pandas as pd
+import plotly.express as px
+import streamlit as st
+
 st.set_page_config(
-    page_title= "IDH Brasil",
+    page_title="IDHM Brasil",
     page_icon="📊",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
 )
 
-path = ".\\Tabela4.csv"
 
-@st.cache_data
-def carregar_e_limpar_afazeres(path):
-    if isinstance(path, str):
-        if path.lower().endswith(".csv"):
-            bruto = pd.read_csv(path, header=None)
-        else:
-            bruto = pd.read_excel(path, engine="xlrd", header=None)
-    else:
-        nome = path.name.lower()
-        if nome.endswith(".csv"):
-            bruto = pd.read_csv(path, header=None)
-        elif nome.endswith(".xls"):
-            bruto = pd.read_excel(path, engine="xlrd", header=None)
-        else:
-            bruto = pd.read_excel(path, header=None)
+PATH = "Tabela4.csv"
 
-    df = bruto.iloc[[2,6,11,12,15]:41].copy()
-
-    df.columns = [
-        "Sigla",
-        "2000",
-        "2010",
-        "2012",
-        "2013",
-        "2014",
-        "2015",
-        "2016",
-        "2017",
-        "2018",
-        "2019",
-        "2020",
-        "2021",
-        "2022",
-        "2023",
-        "2024",
-    ]
-    df = df.reset_index(drop=True)
-
-    for col in df.columns[1:]:
-        df[col] = pd.to_numeric(df[col], errors="coerce")
-
-    df["homens_media"] = ((df["homem_branca"] + df["homem_preta_parda"]) / 2).round(2)
-    df["mulheres_media"] = ((df["mulher_branca"] + df["mulher_preta_parda"]) / 2).round(2)
-    df["diferenca_genero"] = (df["mulheres_media"] - df["homens_media"]).round(2)
-
-    return df
-
-
-@st.cache_data
-def carregar_e_limpar_formacao(path):
-    if isinstance(path, str):
-        if path.lower().endswith(".csv"):
-            bruto = pd.read_csv(path, header=None)
-        else:
-            bruto = pd.read_excel(path, header=None)
-    else:
-        nome = path.name.lower()
-        if nome.endswith(".csv"):
-            bruto = pd.read_csv(path, header=None)
-        else:
-            bruto = pd.read_excel(path, header=None)
-
-    f_bruto = bruto.iloc[3:36].copy()
-
-    f_total = f_bruto.iloc[:, 0:4].copy()
-    f_total.columns = ["uf_regiao", "total", "homens", "mulheres"]
-
-    f_stem = f_bruto.iloc[:, [0, 4, 5, 6]].copy()
-    f_stem.columns = ["uf_regiao", "total", "homens", "mulheres"]
-
-    f_saude = f_bruto.iloc[:, [0, 7, 8, 9]].copy()
-    f_saude.columns = ["uf_regiao", "total", "homens", "mulheres"]
-
-    for sub_df in [f_total, f_stem, f_saude]:
-        for col in ["total", "homens", "mulheres"]:
-            sub_df[col] = pd.to_numeric(sub_df[col], errors="coerce")
-        sub_df["pct_mulheres"] = ((sub_df["mulheres"] / sub_df["total"]) * 100).round(2)
-
-    df_consolidado = pd.DataFrame({
-        "uf_regiao": f_total["uf_regiao"].values,
-        "total_graduados": f_total["total"].values,
-        "mulheres_total": f_total["mulheres"].values,
-        "pct_mulheres_total": f_total["pct_mulheres"].values,
-        "stem_total": f_stem["total"].values,
-        "pct_mulheres_stem": f_stem["pct_mulheres"].values,
-        "saude_total": f_saude["total"].values,
-        "pct_mulheres_saude": f_saude["pct_mulheres"].values,
-    })
-
-    return df_consolidado
+REGIOES = {
+    "Norte": ["AC", "AM", "AP", "PA", "RO", "RR", "TO"],
+    "Nordeste": ["AL", "BA", "CE", "MA", "PB", "PE", "PI", "RN", "SE"],
+    "Sudeste": ["ES", "MG", "RJ", "SP"],
+    "Sul": ["PR", "RS", "SC"],
+    "Centro-Oeste": ["DF", "GO", "MS", "MT"],
+}
+SIGLA_REGIAO = {uf: reg for reg, ufs in REGIOES.items() for uf in ufs}
 
 
 # ==============================================================================
-# 3. BARRA LATERAL (SIDEBAR) - CARREGAMENTO DE DADOS E FILTROS
+# 2. CARREGAMENTO E LIMPEZA (PANDAS)
 # ==============================================================================
+def _ler_bruto(origem):
+    """Lê CSV (utf-8 ou latin-1) ou Excel, sem cabeçalho."""
+    nome = origem if isinstance(origem, str) else origem.name
+    nome = nome.lower()
 
+    if nome.endswith(".csv"):
+        for enc in ("utf-8", "latin-1"):
+            try:
+                if not isinstance(origem, str):
+                    origem.seek(0)
+                return pd.read_csv(origem, header=None, encoding=enc, sep=None, engine="python")
+            except UnicodeDecodeError:
+                continue
+        raise ValueError("Não foi possível ler o CSV (encoding).")
+
+    if not isinstance(origem, str):
+        origem.seek(0)
+    if nome.endswith(".xls"):
+        return pd.read_excel(origem, header=None, engine="xlrd")
+    return pd.read_excel(origem, header=None)
+
+
+@st.cache_data
+def carregar_idhm(origem):
+    bruto = _ler_bruto(origem)
+
+    # Localiza a linha de cabeçalho (a que começa com "Sigla")
+    primeira_col = bruto.iloc[:, 0].astype(str).str.strip()
+    idx_cab = primeira_col[primeira_col == "Sigla"].index[0]
+
+    df = bruto.iloc[idx_cab + 1:].copy()
+    df.columns = [str(c).strip() for c in bruto.iloc[idx_cab]]
+    df = df.dropna(subset=["Sigla"]).reset_index(drop=True)
+
+    df = df.rename(columns={"Sigla": "sigla", "Código": "codigo", "Estado": "estado"})
+    anos = [c for c in df.columns if c.isdigit()]
+
+    for col in anos:
+        df[col] = pd.to_numeric(df[col].astype(str).str.replace(",", ".", regex=False), errors="coerce")
+
+    df["regiao"] = df["sigla"].map(SIGLA_REGIAO)
+    return df, anos
+
+
+def classificar(valor):
+    """Faixas oficiais do IDHM (PNUD)."""
+    if pd.isna(valor):
+        return "Sem dado"
+    if valor >= 0.800:
+        return "Muito alto"
+    if valor >= 0.700:
+        return "Alto"
+    if valor >= 0.600:
+        return "Médio"
+    if valor >= 0.500:
+        return "Baixo"
+    return "Muito baixo"
+
+
+# ==============================================================================
+# 3. BARRA LATERAL: UPLOAD, NAVEGAÇÃO E FILTROS
+# ==============================================================================
 st.sidebar.title("📌 Menu & Filtros")
 
-st.sidebar.subheader("📂 Arquivos de Entrada (Pandas)")
+st.sidebar.subheader("📂 Arquivo de entrada")
+arquivo = st.sidebar.file_uploader("Upload da Tabela 4 (IDHM):", type=["csv", "xls", "xlsx"])
 
-file_afazeres = st.sidebar.file_uploader("Upload Tabela 1.1.1 (Afazeres):", type=["xls", "xlsx", "csv"])
-file_formacao = st.sidebar.file_uploader("Upload Tabela 3 (Formação):", type=["xls", "xlsx", "csv"])
-
-df_afazeres = None
-df_formacao = None
-
+df, anos = None, None
 try:
-    if file_afazeres is not None:
-        df_afazeres = carregar_e_limpar_afazeres(file_afazeres)
-    elif os.path.exists(path):
-        df_afazeres = carregar_e_limpar_afazeres(path)
+    if arquivo is not None:
+        df, anos = carregar_idhm(arquivo)
+    elif os.path.exists(PATH):
+        df, anos = carregar_idhm(PATH)
 except Exception as e:
-    st.sidebar.error(f"Erro ao carregar Tabela 1.1.1: {e}")
+    st.sidebar.error(f"Erro ao carregar a tabela: {e}")
 
-try:
-    if file_formacao is not None:
-        df_formacao = carregar_e_limpar_formacao(file_formacao)
-    elif os.path.exists(path):
-        df_formacao = carregar_e_limpar_formacao(path)
-except Exception as e:
-    st.sidebar.error(f"Erro ao carregar Tabela de Formação: {e}")
-
-if df_afazeres is None or df_formacao is None:
-    st.warning("⚠️ **Aguardando leitura de dados pelo Pandas.**")
-    st.info(f"""
-    Não foi possível encontrar automaticamente os arquivos nos caminhos:
-    - `{path}`
-    - `{path}`
-
-    **Solução:** Utilize o campo de upload na barra lateral para carregar as tabelas.
-    """)
+if df is None:
+    st.warning("⚠️ **Aguardando leitura dos dados.**")
+    st.info(f"Arquivo `{PATH}` não encontrado. Use o campo de upload na barra lateral.")
     st.stop()
 
-# ==============================================================================
-# VARIÁVEIS GLOBAIS (DEFINIDAS PARA TODAS AS PÁGINAS)
-# ==============================================================================
-br_afazeres = df_afazeres[df_afazeres["uf_regiao"] == "Brasil"]
-br_formacao = df_formacao[df_formacao["uf_regiao"] == "Brasil"]
-
-media_br = br_afazeres["total"].values[0] if not br_afazeres.empty else 0
-homem_br = br_afazeres["homens_media"].values[0] if not br_afazeres.empty else 0
-mulher_br = br_afazeres["mulheres_media"].values[0] if not br_afazeres.empty else 0
-stem_br = br_formacao["pct_mulheres_stem"].values[0] if not br_formacao.empty else 0
-
-# Navegação
 st.sidebar.markdown("---")
 pagina = st.sidebar.radio(
     "Selecione a Visualização:",
-    ["🏠 Visão Geral", "📊 Afazeres Domésticos", "🎓 Formação Acadêmica"]
+    ["🏠 Visão Geral", "📈 Evolução Temporal", "📊 Ranking e Dispersão", "📰 Notícias e Projetos"],
 )
 
-REGIOES = ["Brasil", "Norte", "Nordeste", "Sudeste", "Sul", "Centro-Oeste"]
-
 st.sidebar.markdown("---")
-tipo_visao = st.sidebar.radio("Filtrar recorte:", ["Apenas Estados (27 UFs)", "Apenas Regiões e Brasil"])
+st.sidebar.subheader("🎯 Filtros")
 
-if tipo_visao == "Apenas Estados (27 UFs)":
-    df_af_fil = df_afazeres[~df_afazeres["uf_regiao"].isin(REGIOES)].copy()
-    df_fo_fil = df_formacao[~df_formacao["uf_regiao"].isin(REGIOES)].copy()
-else:
-    df_af_fil = df_afazeres[df_afazeres["uf_regiao"].isin(REGIOES)].copy()
-    df_fo_fil = df_formacao[df_formacao["uf_regiao"].isin(REGIOES)].copy()
+regioes_sel = st.sidebar.multiselect("Região:", list(REGIOES.keys()), default=list(REGIOES.keys()))
+ufs_regiao = df[df["regiao"].isin(regioes_sel)]["sigla"].tolist()
+ufs_sel = st.sidebar.multiselect("UF:", ufs_regiao, default=ufs_regiao)
 
-locais_disp = df_af_fil["uf_regiao"].tolist()
-locais_sel = st.sidebar.multiselect("Filtrar UFs / Regiões:", locais_disp, default=locais_disp)
+ano_ini, ano_fim = st.sidebar.select_slider(
+    "Período:", options=anos, value=(anos[0], anos[-1])
+)
+anos_periodo = [a for a in anos if int(ano_ini) <= int(a) <= int(ano_fim)]
 
-if locais_sel:
-    df_af_fil = df_af_fil[df_af_fil["uf_regiao"].isin(locais_sel)]
-    df_fo_fil = df_fo_fil[df_fo_fil["uf_regiao"].isin(locais_sel)]
+df_fil = df[df["sigla"].isin(ufs_sel)].copy()
+
+if df_fil.empty:
+    st.warning("Selecione ao menos uma UF na barra lateral.")
+    st.stop()
+
+# Série longa (tidy) para os gráficos de linha / boxplot
+df_long = df_fil.melt(
+    id_vars=["sigla", "estado", "regiao"],
+    value_vars=anos_periodo,
+    var_name="ano",
+    value_name="idhm",
+)
+df_long["ano"] = df_long["ano"].astype(int)
+
+media_ufs_por_ano = df_long.groupby("ano")["idhm"].mean().reset_index()
 
 
 # ==============================================================================
 # 4. PÁGINA: VISÃO GERAL
 # ==============================================================================
-
 if pagina == "🏠 Visão Geral":
-    st.title("📊 Painel de Análise Social IBGE - Gênero e Raça")
-    st.markdown("Dados lidos do diretório especificado e tratados via **Pandas**.")
+    st.title("📊 Painel IDHM — Consórcio de Governadores")
+    st.markdown(
+        "Análise do **Índice de Desenvolvimento Humano Municipal (IDHM)** por Unidade da Federação, "
+        "para apoiar a criação de um fundo regional de redução de desigualdades."
+    )
 
-    col1, col2, col3, col4 = st.columns(4)
+    col_ref = ano_fim
+    serie = df_fil.set_index("sigla")[col_ref].dropna()
 
-    col1.metric("Média Horas Casa (Brasil)", f"{media_br:.1f} h/sem")
-    col2.metric("Média Homens", f"{homem_br:.1f} h/sem")
-    col3.metric("Média Mulheres", f"{mulher_br:.1f} h/sem", delta=f"+{mulher_br - homem_br:.1f} h")
-    col4.metric("% Mulheres em STEM", f"{stem_br:.1f}%")
+    maior_uf, menor_uf = serie.idxmax(), serie.idxmin()
+    media = serie.mean()
+    desvio = serie.std()
+    iqr = serie.quantile(0.75) - serie.quantile(0.25)
+
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric(f"Média das UFs ({col_ref})", f"{media:.3f}")
+    c2.metric("Maior IDHM", f"{maior_uf} • {serie.max():.3f}")
+    c3.metric("Menor IDHM", f"{menor_uf} • {serie.min():.3f}")
+    c4.metric("Desvio-padrão", f"{desvio:.3f}")
+    c5.metric("IQR", f"{iqr:.3f}")
+
+    # Comparativo com o início do período
+    base = df_fil[ano_ini].mean()
+    st.caption(
+        f"Média das UFs selecionadas em {ano_ini}: **{base:.3f}** → em {ano_fim}: **{media:.3f}** "
+        f"({media - base:+.3f})."
+    )
 
     st.markdown("---")
-    st.subheader("📋 Visualização das Tabelas Tratadas (Pandas)")
-    tab1, tab2 = st.tabs(["Tabela 1.1.1 (Afazeres Domésticos)", "Tabela 3 (Formação Acadêmica)"])
-    
-    with tab1:
-        st.dataframe(df_af_fil, use_container_width=True)
-    with tab2:
-        st.dataframe(df_fo_fil, use_container_width=True)
+    st.subheader(f"Distribuição das UFs por faixa de desenvolvimento ({col_ref})")
+    df_faixa = df_fil[["sigla", "estado", "regiao", col_ref]].copy()
+    df_faixa["faixa"] = df_faixa[col_ref].apply(classificar)
+    ordem = ["Muito baixo", "Baixo", "Médio", "Alto", "Muito alto"]
+    contagem = (
+        df_faixa["faixa"].value_counts().reindex(ordem).fillna(0).astype(int).reset_index()
+    )
+    contagem.columns = ["faixa", "ufs"]
+    fig_faixa = px.bar(
+        contagem, x="faixa", y="ufs", text="ufs",
+        labels={"faixa": "Faixa do IDHM", "ufs": "Nº de UFs"},
+        color="faixa",
+        color_discrete_sequence=px.colors.sequential.Viridis,
+    )
+    fig_faixa.update_layout(showlegend=False)
+    st.plotly_chart(fig_faixa, use_container_width=True)
+
+    st.subheader("📋 Tabela tratada (Pandas)")
+    st.dataframe(df_fil[["sigla", "estado", "regiao"] + anos_periodo], use_container_width=True)
 
 
 # ==============================================================================
-# 5. PÁGINA: AFAZERES DOMÉSTICOS
+# 5. PÁGINA: EVOLUÇÃO TEMPORAL
 # ==============================================================================
+elif pagina == "📈 Evolução Temporal":
+    st.title("📈 Evolução do IDHM")
 
-elif pagina == "📊 Afazeres Domésticos":
-    st.title("🧹 Dedicação a Cuidados de Pessoas e Afazeres Domésticos")
-
-    st.subheader("1. Horas Dedicadas por Localidade vs. Média Brasil")
-    fig_tot = px.bar(
-        df_af_fil.sort_values("total", ascending=True),
-        x="total",
-        y="uf_regiao",
-        orientation="h",
-        color="total",
-        labels={"total": "Horas / Semana", "uf_regiao": "Localidade"},
-        text_auto=".1f",
-        color_continuous_scale="Blues"
+    st.subheader("1. IDHM por UF ao longo do tempo")
+    fig_lin = px.line(
+        df_long.sort_values("ano"),
+        x="ano", y="idhm", color="sigla", markers=True,
+        hover_name="estado",
+        labels={"ano": "Ano", "idhm": "IDHM", "sigla": "UF"},
     )
-    if not br_afazeres.empty:
-        fig_tot.add_vline(x=media_br, line_dash="dash", line_color="red", annotation_text=f"Média Brasil ({media_br:.1f}h)")
-    st.plotly_chart(fig_tot, use_container_width=True)
+    fig_lin.update_xaxes(type="category")
+    st.plotly_chart(fig_lin, use_container_width=True)
 
-    st.subheader("2. Comparativo Homens vs. Mulheres")
-    df_melt_gen = df_af_fil.melt(
-        id_vars=["uf_regiao"],
-        value_vars=["homens_media", "mulheres_media"],
-        var_name="Gênero",
-        value_name="Horas"
+    st.subheader("2. Média das UFs selecionadas")
+    fig_media = px.line(
+        media_ufs_por_ano, x="ano", y="idhm", markers=True,
+        labels={"ano": "Ano", "idhm": "IDHM médio"},
     )
-    df_melt_gen["Gênero"] = df_melt_gen["Gênero"].map({"homens_media": "Homens", "mulheres_media": "Mulheres"})
+    fig_media.update_xaxes(type="category")
+    st.plotly_chart(fig_media, use_container_width=True)
 
-    fig_gen = px.bar(
-        df_melt_gen,
-        x="uf_regiao",
-        y="Horas",
-        color="Gênero",
-        barmode="group",
-        labels={"Horas": "Horas / Semana", "uf_regiao": "Localidade"},
-        color_discrete_map={"Homens": "#2b5c8f", "Mulheres": "#d95f02"}
+    st.subheader("3. Variação do IDHM no período")
+    var = df_fil[["sigla", "estado", ano_ini, ano_fim]].copy()
+    var["variacao"] = (var[ano_fim] - var[ano_ini]).round(3)
+    var = var.sort_values("variacao", ascending=True)
+    fig_var = px.bar(
+        var, x="variacao", y="sigla", orientation="h", text="variacao",
+        hover_name="estado", color="variacao", color_continuous_scale="Blues",
+        labels={"variacao": f"Variação {ano_ini} → {ano_fim}", "sigla": "UF"},
     )
-    st.plotly_chart(fig_gen, use_container_width=True)
+    st.plotly_chart(fig_var, use_container_width=True)
 
-    st.subheader("3. Cruzamento por Sexo e Cor/Raça (Boxplot)")
-    df_melt_raca = df_af_fil.melt(
-        id_vars=["uf_regiao"],
-        value_vars=["homem_branca", "homem_preta_parda", "mulher_branca", "mulher_preta_parda"],
-        var_name="Grupo",
-        value_name="Horas"
+    maior_cresc = var.iloc[-1]
+    menor_cresc = var.iloc[0]
+    st.info(
+        f"Maior ganho: **{maior_cresc['estado']}** ({maior_cresc['variacao']:+.3f}). "
+        f"Menor ganho: **{menor_cresc['estado']}** ({menor_cresc['variacao']:+.3f})."
     )
-    mapa_raca = {
-        "homem_branca": "Homem Branco",
-        "homem_preta_parda": "Homem Preto/Pardo",
-        "mulher_branca": "Mulher Branca",
-        "mulher_preta_parda": "Mulher Preta/Parda"
-    }
-    df_melt_raca["Grupo"] = df_melt_raca["Grupo"].map(mapa_raca)
 
+
+# ==============================================================================
+# 6. PÁGINA: RANKING E DISPERSÃO
+# ==============================================================================
+elif pagina == "📊 Ranking e Dispersão":
+    st.title("📊 Ranking e Dispersão entre UFs")
+
+    ano_rank = st.selectbox("Ano de referência:", anos_periodo, index=len(anos_periodo) - 1)
+
+    st.subheader(f"1. Ranking do IDHM em {ano_rank}")
+    rank = df_fil[["sigla", "estado", "regiao", ano_rank]].dropna().sort_values(ano_rank)
+    fig_rank = px.bar(
+        rank, x=ano_rank, y="sigla", orientation="h", color="regiao", text=ano_rank,
+        hover_name="estado", labels={ano_rank: "IDHM", "sigla": "UF", "regiao": "Região"},
+    )
+    st.plotly_chart(fig_rank, use_container_width=True)
+
+    col_a, col_b = st.columns(2)
+    with col_a:
+        st.markdown("**🔻 5 menores IDHM**")
+        st.dataframe(rank.head(5)[["estado", ano_rank]].rename(columns={ano_rank: "IDHM"}),
+                     hide_index=True, use_container_width=True)
+    with col_b:
+        st.markdown("**🔺 5 maiores IDHM**")
+        st.dataframe(rank.tail(5).iloc[::-1][["estado", ano_rank]].rename(columns={ano_rank: "IDHM"}),
+                     hide_index=True, use_container_width=True)
+
+    st.subheader("2. Boxplot do IDHM por região")
+    df_box = df_long[df_long["ano"] == int(ano_rank)]
     fig_box = px.box(
-        df_melt_raca,
-        x="Grupo",
-        y="Horas",
-        color="Grupo",
-        points="all",
-        title="Distribuição das Horas entre as Localidades Selecionadas"
+        df_box, x="regiao", y="idhm", color="regiao", points="all",
+        hover_name="estado", labels={"regiao": "Região", "idhm": "IDHM"},
     )
     st.plotly_chart(fig_box, use_container_width=True)
 
+    st.subheader("3. Dispersão entre UFs ao longo do tempo (desvio-padrão e IQR)")
+    disp = df_long.groupby("ano")["idhm"].agg(
+        desvio_padrao="std",
+        iqr=lambda s: s.quantile(0.75) - s.quantile(0.25),
+    ).reset_index()
+    disp_long = disp.melt(id_vars="ano", var_name="medida", value_name="valor")
+    disp_long["medida"] = disp_long["medida"].map({"desvio_padrao": "Desvio-padrão", "iqr": "IQR"})
+    fig_disp = px.line(disp_long, x="ano", y="valor", color="medida", markers=True,
+                       labels={"ano": "Ano", "valor": "Dispersão", "medida": "Medida"})
+    fig_disp.update_xaxes(type="category")
+    st.plotly_chart(fig_disp, use_container_width=True)
+    st.caption("Quanto menor a dispersão, mais próximas estão as UFs: sinal de redução de desigualdade regional.")
+
 
 # ==============================================================================
-# 6. PÁGINA: FORMAÇÃO ACADÊMICA
+# 7. PÁGINA: NOTÍCIAS E PROJETOS
 # ==============================================================================
-
-elif pagina == "🎓 Formação Acadêmica":
-    st.title("🎓 Proporção de Mulheres na Graduação Superior")
-
-    st.subheader("1. % de Mulheres por Área (Total vs. STEM vs. Saúde/Educação)")
-    df_melt_form = df_fo_fil.melt(
-        id_vars=["uf_regiao"],
-        value_vars=["pct_mulheres_total", "pct_mulheres_stem", "pct_mulheres_saude"],
-        var_name="Área",
-        value_name="Percentual"
+elif pagina == "📰 Notícias e Projetos":
+    st.title("📰 Superação da extrema pobreza e índices sociais")
+    st.markdown(
+        "Seleção de fontes para acompanhar projetos de superação da extrema pobreza no Brasil. "
+        "Os links abrem buscas atualizadas nas fontes oficiais e na imprensa."
     )
-    mapa_area = {
-        "pct_mulheres_total": "Graduação Total",
-        "pct_mulheres_stem": "STEM (Exatas/Tecnologia)",
-        "pct_mulheres_saude": "Saúde e Educação"
-    }
-    df_melt_form["Área"] = df_melt_form["Área"].map(mapa_area)
 
-    fig_form = px.bar(
-        df_melt_form,
-        x="uf_regiao",
-        y="Percentual",
-        color="Área",
-        barmode="group",
-        labels={"Percentual": "% de Mulheres", "uf_regiao": "Localidade"}
-    )
-    fig_form.add_hline(y=50, line_dash="dash", line_color="gray", annotation_text="Paridade (50%)")
-    st.plotly_chart(fig_form, use_container_width=True)
+    # Para usar imagens próprias, coloque os arquivos na pasta "imagens" (ex.: imagens/idh1.jpg)
+    # e preencha o campo "imagem" abaixo.
+    noticias = [
+        {
+            "titulo": "Atlas do Desenvolvimento Humano no Brasil",
+            "resumo": "Base oficial do PNUD, Ipea e FJP com o IDHM de estados e municípios.",
+            "link": "https://www.atlasbrasil.org.br/",
+            "imagem": "imagens/atlas.jpg",
+        },
+        {
+            "titulo": "Projetos de superação da extrema pobreza (notícias)",
+            "resumo": "Reportagens recentes sobre programas de transferência de renda e inclusão produtiva.",
+            "link": "https://news.google.com/search?q=supera%C3%A7%C3%A3o%20da%20extrema%20pobreza%20Brasil",
+            "imagem": "imagens/pobreza.jpg",
+        },
+        {
+            "titulo": "Relatório de Desenvolvimento Humano (PNUD)",
+            "resumo": "Publicação global do PNUD que acompanha o IDH dos países.",
+            "link": "https://www.undp.org/pt/brazil",
+            "imagem": "imagens/pnud.jpg",
+        },
+        {
+            "titulo": "Desigualdade regional no Brasil (notícias)",
+            "resumo": "Cobertura sobre diferenças de renda, saúde e educação entre as regiões.",
+            "link": "https://news.google.com/search?q=desigualdade%20regional%20IDH%20Brasil",
+            "imagem": "imagens/desigualdade.jpg",
+        },
+    ]
 
-    st.subheader("2. Comparativo da Distribuição por Área (Boxplot)")
-    fig_box_form = px.box(
-        df_melt_form,
-        x="Área",
-        y="Percentual",
-        color="Área",
-        points="all"
-    )
-    fig_box_form.add_hline(y=50, line_dash="dash", line_color="gray")
-    st.plotly_chart(fig_box_form, use_container_width=True)
+    cols = st.columns(2)
+    for i, n in enumerate(noticias):
+        with cols[i % 2]:
+            with st.container(border=True):
+                if os.path.exists(n["imagem"]):
+                    st.image(n["imagem"], use_container_width=True)
+                st.markdown(f"### {n['titulo']}")
+                st.write(n["resumo"])
+                st.link_button("Acessar", n["link"])
