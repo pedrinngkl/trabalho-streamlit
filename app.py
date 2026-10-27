@@ -12,21 +12,18 @@ st.set_page_config(
 )
 
 
-PATH = "Tabela4.csv"
+path = "Tabela4.csv"
 
-REGIOES = {
+regioes = {
     "Norte": ["AC", "AM", "AP", "PA", "RO", "RR", "TO"],
     "Nordeste": ["AL", "BA", "CE", "MA", "PB", "PE", "PI", "RN", "SE"],
     "Sudeste": ["ES", "MG", "RJ", "SP"],
     "Sul": ["PR", "RS", "SC"],
     "Centro-Oeste": ["DF", "GO", "MS", "MT"],
 }
-SIGLA_REGIAO = {uf: reg for reg, ufs in REGIOES.items() for uf in ufs}
+sigla_regiao = {uf: reg for reg, ufs in regioes.items() for uf in ufs}
 
 
-# ==============================================================================
-# 2. CARREGAMENTO E LIMPEZA (PANDAS)
-# ==============================================================================
 def _ler_bruto(origem):
     """Lê CSV (utf-8 ou latin-1) ou Excel, sem cabeçalho."""
     nome = origem if isinstance(origem, str) else origem.name
@@ -53,7 +50,6 @@ def _ler_bruto(origem):
 def carregar_idhm(origem):
     bruto = _ler_bruto(origem)
 
-    # Localiza a linha de cabeçalho (a que começa com "Sigla")
     primeira_col = bruto.iloc[:, 0].astype(str).str.strip()
     idx_cab = primeira_col[primeira_col == "Sigla"].index[0]
 
@@ -67,12 +63,12 @@ def carregar_idhm(origem):
     for col in anos:
         df[col] = pd.to_numeric(df[col].astype(str).str.replace(",", ".", regex=False), errors="coerce")
 
-    df["regiao"] = df["sigla"].map(SIGLA_REGIAO)
+    df["regiao"] = df["sigla"].map(sigla_regiao)
     return df, anos
 
 
 def classificar(valor):
-    """Faixas oficiais do IDHM (PNUD)."""
+    """Faixas oficiais do IDHM."""
     if pd.isna(valor):
         return "Sem dado"
     if valor >= 0.800:
@@ -86,38 +82,35 @@ def classificar(valor):
     return "Muito baixo"
 
 
-# ==============================================================================
-# 3. BARRA LATERAL: UPLOAD, NAVEGAÇÃO E FILTROS
-# ==============================================================================
-st.sidebar.title("📌 Menu & Filtros")
+st.sidebar.title(" Menu & Filtros")
 
-st.sidebar.subheader("📂 Arquivo de entrada")
+st.sidebar.subheader(" Arquivo de entrada")
 arquivo = st.sidebar.file_uploader("Upload da Tabela 4 (IDHM):", type=["csv", "xls", "xlsx"])
 
 df, anos = None, None
 try:
     if arquivo is not None:
         df, anos = carregar_idhm(arquivo)
-    elif os.path.exists(PATH):
-        df, anos = carregar_idhm(PATH)
+    elif os.path.exists(path):
+        df, anos = carregar_idhm(path)
 except Exception as e:
     st.sidebar.error(f"Erro ao carregar a tabela: {e}")
 
 if df is None:
-    st.warning("⚠️ **Aguardando leitura dos dados.**")
-    st.info(f"Arquivo `{PATH}` não encontrado. Use o campo de upload na barra lateral.")
+    st.warning(" **Aguardando leitura dos dados.**")
+    st.info(f"Arquivo `{path}` não encontrado. Use o campo de upload na barra lateral.")
     st.stop()
 
 st.sidebar.markdown("---")
 pagina = st.sidebar.radio(
     "Selecione a Visualização:",
-    ["🏠 Visão Geral", "📈 Evolução Temporal", "📊 Ranking e Dispersão", "📰 Notícias e Projetos"],
+    [" Visão Geral", " Evolução Temporal", " Ranking e Dispersão", " Notícias e Projetos"],
 )
 
 st.sidebar.markdown("---")
-st.sidebar.subheader("🎯 Filtros")
+st.sidebar.subheader(" Filtros")
 
-regioes_sel = st.sidebar.multiselect("Região:", list(REGIOES.keys()), default=list(REGIOES.keys()))
+regioes_sel = st.sidebar.multiselect("Região:", list(regioes.keys()), default=list(regioes.keys()))
 ufs_regiao = df[df["regiao"].isin(regioes_sel)]["sigla"].tolist()
 ufs_sel = st.sidebar.multiselect("UF:", ufs_regiao, default=ufs_regiao)
 
@@ -132,7 +125,6 @@ if df_fil.empty:
     st.warning("Selecione ao menos uma UF na barra lateral.")
     st.stop()
 
-# Série longa (tidy) para os gráficos de linha / boxplot
 df_long = df_fil.melt(
     id_vars=["sigla", "estado", "regiao"],
     value_vars=anos_periodo,
@@ -144,11 +136,8 @@ df_long["ano"] = df_long["ano"].astype(int)
 media_ufs_por_ano = df_long.groupby("ano")["idhm"].mean().reset_index()
 
 
-# ==============================================================================
-# 4. PÁGINA: VISÃO GERAL
-# ==============================================================================
-if pagina == "🏠 Visão Geral":
-    st.title("📊 Painel IDHM — Consórcio de Governadores")
+if pagina == " Visão Geral":
+    st.title(" Painel IDHM — Consórcio de Governadores")
     st.markdown(
         "Análise do **Índice de Desenvolvimento Humano Municipal (IDHM)** por Unidade da Federação, "
         "para apoiar a criação de um fundo regional de redução de desigualdades."
@@ -169,7 +158,6 @@ if pagina == "🏠 Visão Geral":
     c4.metric("Desvio-padrão", f"{desvio:.3f}")
     c5.metric("IQR", f"{iqr:.3f}")
 
-    # Comparativo com o início do período
     base = df_fil[ano_ini].mean()
     st.caption(
         f"Média das UFs selecionadas em {ano_ini}: **{base:.3f}** → em {ano_fim}: **{media:.3f}** "
@@ -194,15 +182,12 @@ if pagina == "🏠 Visão Geral":
     fig_faixa.update_layout(showlegend=False)
     st.plotly_chart(fig_faixa, use_container_width=True)
 
-    st.subheader("📋 Tabela tratada (Pandas)")
+    st.subheader(" Tabela tratada")
     st.dataframe(df_fil[["sigla", "estado", "regiao"] + anos_periodo], use_container_width=True)
 
 
-# ==============================================================================
-# 5. PÁGINA: EVOLUÇÃO TEMPORAL
-# ==============================================================================
-elif pagina == "📈 Evolução Temporal":
-    st.title("📈 Evolução do IDHM")
+elif pagina == " Evolução Temporal":
+    st.title(" Evolução do IDHM")
 
     st.subheader("1. IDHM por UF ao longo do tempo")
     fig_lin = px.line(
@@ -241,11 +226,9 @@ elif pagina == "📈 Evolução Temporal":
     )
 
 
-# ==============================================================================
-# 6. PÁGINA: RANKING E DISPERSÃO
-# ==============================================================================
-elif pagina == "📊 Ranking e Dispersão":
-    st.title("📊 Ranking e Dispersão entre UFs")
+
+elif pagina == " Ranking e Dispersão":
+    st.title(" Ranking e Dispersão entre UFs")
 
     ano_rank = st.selectbox("Ano de referência:", anos_periodo, index=len(anos_periodo) - 1)
 
@@ -259,11 +242,11 @@ elif pagina == "📊 Ranking e Dispersão":
 
     col_a, col_b = st.columns(2)
     with col_a:
-        st.markdown("**🔻 5 menores IDHM**")
+        st.markdown("** 5 menores IDHM**")
         st.dataframe(rank.head(5)[["estado", ano_rank]].rename(columns={ano_rank: "IDHM"}),
                      hide_index=True, use_container_width=True)
     with col_b:
-        st.markdown("**🔺 5 maiores IDHM**")
+        st.markdown("** 5 maiores IDHM**")
         st.dataframe(rank.tail(5).iloc[::-1][["estado", ano_rank]].rename(columns={ano_rank: "IDHM"}),
                      hide_index=True, use_container_width=True)
 
@@ -289,18 +272,14 @@ elif pagina == "📊 Ranking e Dispersão":
     st.caption("Quanto menor a dispersão, mais próximas estão as UFs: sinal de redução de desigualdade regional.")
 
 
-# ==============================================================================
-# 7. PÁGINA: NOTÍCIAS E PROJETOS
-# ==============================================================================
-elif pagina == "📰 Notícias e Projetos":
-    st.title("📰 Superação da extrema pobreza e índices sociais")
+
+elif pagina == " Notícias e Projetos":
+    st.title(" Superação da extrema pobreza e índices sociais")
     st.markdown(
         "Seleção de fontes para acompanhar projetos de superação da extrema pobreza no Brasil. "
         "Os links abrem buscas atualizadas nas fontes oficiais e na imprensa."
     )
 
-    # Para usar imagens próprias, coloque os arquivos na pasta "imagens" (ex.: imagens/idh1.jpg)
-    # e preencha o campo "imagem" abaixo.
     noticias = [
         {
             "titulo": "Atlas do Desenvolvimento Humano no Brasil",
